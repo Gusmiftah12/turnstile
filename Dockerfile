@@ -3,24 +3,43 @@ FROM python:3.10-slim-bullseye
 
 WORKDIR /usr/src/app  
 
-# Copy src folder and requirements.txt
-COPY src/ /usr/src/app/src/  
-COPY requirements.txt /usr/src/app/requirements.txt  
-
-# Install only necessary dependencies and clean up cache
+# Install required system dependencies first
 RUN apt update && apt install -y --no-install-recommends \
     wget \
     procps \
     vim \
     ffmpeg \
+    ca-certificates \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libxrender1 \
+    xdg-utils \
     && rm -rf /var/lib/apt/lists/*  
 
-# Download and install Chrome
+# Download and install Google Chrome
 RUN wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
     apt install -y --no-install-recommends ./google-chrome-stable_current_amd64.deb && \
     rm -f google-chrome-stable_current_amd64.deb  
 
-# Install Python dependencies with no cache
+# Copy source files
+COPY src/ /usr/src/app/src/  
+COPY requirements.txt /usr/src/app/requirements.txt  
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt  
 
 # Modify DrissionPage config
