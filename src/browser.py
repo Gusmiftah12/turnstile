@@ -1,68 +1,89 @@
 import queue
 import threading
+import logging
 from contextlib import contextmanager
 from queue import Queue
 
 from DrissionPage import ChromiumPage
 from DrissionPage._configs.chromium_options import ChromiumOptions
 
+# Konfigurasi logging
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+
 
 class BrowserPool:
-	def __init__(self, max_browsers=4):
-		self.max_browsers = max_browsers
-		self._browsers = Queue(maxsize=max_browsers)
-		self._lock = threading.Lock()
-		self._condition = threading.Condition()
+    def __init__(self, max_browsers=4):
+        self.max_browsers = max_browsers
+        self._browsers = Queue(maxsize=max_browsers)
+        self._lock = threading.Lock()
+        self._condition = threading.Condition()
 
-		# Pre-warm pool
-		for _ in range(max_browsers):
-			self._browsers.put(self._create_browser())
+        logging.info(f"Initializing browser pool with {max_browsers} Chromium instances...")
 
-	def _create_browser(self) -> ChromiumPage:
-		opts = ChromiumOptions()
-		opts.headless()
-		opts.set_user_agent(
-			"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-		)
-		browser = ChromiumPage(addr_or_opts=opts)
+        # Pre-warm pool
+        for _ in range(max_browsers):
+            browser = self._create_browser()
+            if browser:
+                self._browsers.put(browser)
 
-		browser.get("https://www.google.com")
+    def _create_browser(self) -> ChromiumPage:
+        opts = ChromiumOptions()
+        opts.headless(True)  # Paksa mode headless
+        opts.set_argument("--no-sandbox")  # Hindari masalah hak akses
+        opts.set_argument("--disable-dev-shm-usage")  # Kurangi penggunaan shared memory
+        opts.set_argument("--disable-gpu")  # Nonaktifkan GPU untuk mode headless
+        opts.set_argument("--remote-debugging-port=9222")  # Gunakan port debugging
 
-		return browser
+        try:
+            logging.debug("Starting Chromium...")
+            browser = ChromiumPage(addr_or_opts=opts)
 
-	@contextmanager
-	def browser(self):
-		with self._condition:
-			# Wait for browser to become available
-			while (
-				self._browsers.empty()
-				and len(self._browsers.queue) >= self.max_browsers
-			):
-				self._condition.wait(timeout=5)
+            # Cek apakah browser bisa mengakses halaman
+            browser.get("https://www.google.com")
+            logging.info("Chromium started successfully.")
 
-			try:
-				browser = self._browsers.get_nowait()
-			except queue.Empty:
-				# Create new browser if under max limit
-				with self._lock:
-					if len(self._browsers.queue) < self.max_browsers:
-						browser = self._create_browser()
-					else:
-						raise RuntimeError("Browser pool exhausted")
+            return browser
+        except Exception as e:
+            logging.error(f"Failed to start Chromium: {e}")
+            return None
 
-		try:
-			# Reset browser state
-			browser.set.cookies.clear()
-			browser.run_js("localStorage.clear();")
-			browser.run_js("sessionStorage.clear();")
-			yield browser
-		finally:
-			# Return browser to pool
-			with self._condition:
-				self._browsers.put(browser)
-				self._condition.notify_all()
+    @contextmanager
+    def browser(self):
+        with self._condition:
+            # Tunggu hingga browser tersedia
+            while self._browsers.empty() and len(self._browsers.queue) >= self.max_browsers:
+                self._condition.wait(timeout=5)
 
-	def cleanup(self):
-		while not self._browsers.empty():
-			browser = self._browsers.get()
-			browser.quit()
+            try:
+                browser = self._browsers.get_nowait()
+            except queue.Empty:
+                # Jika pool kosong, buat browser baru jika belum mencapai batas maksimum
+                with self._lock:
+                    if len(self._browsers.queue) < self.max_browsers:
+                        browser = self._create_browser()
+                    else:
+                        logging.error("Browser pool exhausted")
+                        raise RuntimeError("Browser pool exhausted")
+
+        try:
+            if browser:
+                # Reset browser state sebelum digunakan kembali
+                browser.set.cookies.clear()
+                browser.run_js("localStorage.clear();")
+                browser.run_js("sessionStorage.clear();")
+                yield browser
+        finally:
+            # Kembalikan browser ke pool jika masih valid
+            with self._condition:
+                if browser:
+                    self._browsers.put(browser)
+                    self._condition.notify_all()
+
+    def cleanup(self):
+        logging.info("Cleaning up browser pool...")
+        while not self._browsers.empty():
+            browser = self._browsers.get()
+            try:
+                browser.quit()
+            except Exception as e:
+                logging.error(f"Error closing browser: {e}")
