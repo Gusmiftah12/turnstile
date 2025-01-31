@@ -11,8 +11,11 @@ Settings.set_language("en")
 app = Sanic("CloudflareTurnstileSolver")
 CORS(app)
 
+@app.get("/")
+async def health_check():
+    return JSONResponse(content={"status": "ok"}, status_code=200)
 
-@app.post("/")
+@app.post("/api")
 async def turnstile_endpoint(request: Request):
 	if not request.json:
 		return json({"error": "Missing JSON body"}, status=400)
