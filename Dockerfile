@@ -1,25 +1,32 @@
-FROM python:3.10-slim-bullseye
+# Use a minimal Python image
+FROM python:3.10-slim-bullseye  
 
-WORKDIR /usr/src/app
+WORKDIR /usr/src/app  
 
-# copy src folder and requirements.txt
-COPY src/ /usr/src/app/src/
-COPY requirements.txt /usr/src/app/requirements.txt
+# Copy src folder and requirements.txt
+COPY src/ /usr/src/app/src/  
+COPY requirements.txt /usr/src/app/requirements.txt  
 
-RUN pip install -r requirements.txt
+# Install only necessary dependencies and clean up cache
+RUN apt update && apt install -y --no-install-recommends \
+    wget \
+    procps \
+    vim \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*  
 
-RUN true && \
-	apt update && \
-	apt install -y wget procps vim ffmpeg && \
-	wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
-	dpkg -i google-chrome-stable_current_amd64.deb || apt --fix-broken install -y && \
-	rm -rf google-chrome-stable_current_amd64.deb
-RUN true && \
-	cd /usr/local/lib/python3.10/site-packages/DrissionPage/_configs/ && \
-	sed -i "/browser_path/s/$(grep 'browser_path' 'configs.ini' | awk -F '=' '{print $2}')/\/usr\/bin\/google-chrome/" configs.ini && \
-	sed -i "/arguments/s/\[/\[\'--no-sandbox\', \'--headless=new\', /" configs.ini
+# Download and install Chrome
+RUN wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
+    apt install -y --no-install-recommends ./google-chrome-stable_current_amd64.deb && \
+    rm -f google-chrome-stable_current_amd64.deb  
 
+# Install Python dependencies with no cache
+RUN pip install --no-cache-dir -r requirements.txt  
 
-EXPOSE 8000
+# Modify DrissionPage config
+RUN sed -i "/browser_path/s/$(grep 'browser_path' /usr/local/lib/python3.10/site-packages/DrissionPage/_configs/configs.ini | awk -F '=' '{print $2}')/\/usr\/bin\/google-chrome/" /usr/local/lib/python3.10/site-packages/DrissionPage/_configs/configs.ini && \
+    sed -i "/arguments/s/\[/\[\'--no-sandbox\', \'--headless=new\', /" /usr/local/lib/python3.10/site-packages/DrissionPage/_configs/configs.ini  
 
-CMD ["python", "src/main.py"]
+EXPOSE 8000  
+
+CMD ["python", "src/main.py"]  
